@@ -1,0 +1,21 @@
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5432/heritagesage
+    username: postgres
+    password: postgres
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: true
+
+openai:
+  api:
+    key: ${OPENAI_API_KEY:}
+
+server:
+  port: 8080
+
+# Eval service
+eval:
+  service:
+    url: ${EVAL_SERVICE_URL:http://localhost:8001/evaluate-image}
