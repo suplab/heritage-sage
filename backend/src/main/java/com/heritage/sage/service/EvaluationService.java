@@ -39,16 +39,13 @@ public class EvaluationService {
         org.springframework.util.LinkedMultiValueMap<String, Object> body = new org.springframework.util.LinkedMultiValueMap<>();
         body.add("file", new ByteArrayResource(imageBytes) {
             @Override
-            public String getFilename() {
-                return "upload.jpg";
-            }
+            public String getFilename() { return "upload.jpg"; }
         });
         body.add("reference", new ByteArrayResource(refBytes) {
             @Override
-            public String getFilename() {
-                return "reference.jpg";
-            }
+            public String getFilename() { return "reference.jpg"; }
         });
+        body.add("skill_name", skillName);
 
         HttpEntity<org.springframework.util.LinkedMultiValueMap<String, Object>> requestEntity = new HttpEntity<>(body, headers);
 
