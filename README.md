@@ -1,187 +1,118 @@
-# 🧵 ReviveCraft - “Lost Skills” Revival Agent
+# Heritage Sage — Lost Skills Revival Agent
 
-**Objective:** Autonomous learning agent that teaches rare skills, evaluates performance, and adapts lessons.
+An AI-powered platform that teaches rare and traditional skills (calligraphy, weaving, pottery, etc.), evaluates learner submissions, and provides adaptive feedback.
 
-## MVP Features:
-
-- User selects a skill (e.g., calligraphy, traditional weaving, old language phrases).
-- Agent provides interactive lessons with examples.
-- User submits progress (image, text, or video).
-- Agent evaluates and gives feedback.
-- Personalized next-step recommendations.
-
-## System Architecture (Spring + AI Integration)
+## Monorepo Structure
 
 ```
-+------------------------------------------------------+
-|                      User Interface                  |
-| (React / Angular / Thymeleaf / Mobile App)           |
-+------------------------------------------------------+
-                | REST API (JSON)
-                v
-+------------------------------------------------------+
-|                 Spring Boot Backend                  |
-|------------------------------------------------------|
-|  1. SkillController (API Layer)                      |
-|  2. LessonService (Business Logic)                   |
-|  3. EvaluationService (Feedback Engine)              |
-|  4. ProgressService (Tracks User Learning)           |
-|  5. AIIntegrationService (Calls OpenAI / Ollama)     |
-+------------------------------------------------------+
-                |                     |
-                v                     v
-+-------------------------+   +-------------------------+
-|  PostgreSQL / MySQL DB  |   |   Python microservice   |
-|  (skills, lessons, etc) |   |   (CV/NLP evaluation)   |
-+-------------------------+   +-------------------------+
+heritage-sage/
+├── frontend/          React + Vite + TypeScript + Tailwind CSS
+├── backend/           Spring Boot 3 (Java 17)
+├── eval-service/      FastAPI image evaluation microservice (Python)
+└── docker-compose.yml PostgreSQL 15
 ```
 
-## Tech Stack:
+## Tech Stack
 
-| Layer               | Technology                                                        |
-| ------------------- | ----------------------------------------------------------------- |
-| Backend             | Spring Boot 3.x (Java 17+)                                        |
-| Database            | PostgreSQL (Docker)                                               |
-| AI Interface        | LangChain4j + OpenAI / Ollama / Hugging Face                      |
-| Evaluation Service  | FastAPI + OpenCV + scikit-image system                            |
-| Optional            | Neo4j (skill relationships), ElevenLabs TTS for spoken lessons |
+| Layer | Technology |
+|---|---|
+| Frontend | React 18, Vite, TypeScript, Tailwind CSS v4 |
+| Backend | Spring Boot 3.2, Spring Data JPA |
+| AI | LangChain4j 1.7.1 — Groq / HuggingFace / OpenAI |
+| Database | PostgreSQL 15 (Docker) |
+| Evaluation | FastAPI + OpenCV + scikit-image (SSIM) |
 
-## 🧠 Core Agent Flow Architecture
+## Architecture
 
-### 1️⃣ Lesson Generation Flow (LangChain4j Java Agent)
-
-**Goal:** Generate structured lessons to teach forgotten or traditional skills (e.g., pottery, weaving, calligraphy).
-
-**Flow:**
 ```
-User → SkillController → LessonService → LangChainLessonService (LangChain4j Chain)
-      ↳ ContextBuilder (adds learner level, region, available materials)
-      ↳ PromptTemplate ("Teach {skill} in 3 levels with hands-on exercises and local context")
-      ↳ LangChain4j ChatModel (OpenAI / Ollama)
-      ↳ Lesson object → PostgreSQL
+React (port 5173)
+      ↓ REST API
+Spring Boot (port 8080)
+      ├── LangChain4j → Groq / HuggingFace / OpenAI
+      ├── EvaluationService → FastAPI (port 8001)
+      └── PostgreSQL (skills, lessons, evaluations)
 ```
 
-**LangChain4j Chain Example:**
+## AI Provider Configuration
 
-```java
-ChatModel chatModel = OpenAiChatModel.builder()
-    .apiKey(System.getenv("OPENAI_API_KEY"))
-    .modelName("gpt-4o-mini")
-    .build();
+Set `AI_PROVIDER` to switch inference backend. Defaults to **Groq**.
 
-ChatChain chain = ChatChain.builder()
-    .chatModel(chatModel)
-    .build();
-
-String output = chain.run("""
-You are a skill revival mentor.
-Generate a step-by-step learning path for the skill: %s.
-Include beginner, intermediate, and expert modules.
-""".formatted(skillName));
+### Groq (default — fastest)
+```bash
+export AI_PROVIDER=groq
+export GROQ_API_KEY=your_key
+export GROQ_MODEL=llama-3.3-70b-versatile   # optional
 ```
 
-### 2️⃣ Image / Video Evaluation Flow (Python FastAPI Agent)
-
-**Goal:** Evaluate a learner’s uploaded work sample (e.g., photo of pottery) for quality and authenticity.
-
-**Flow:**
-```
-User uploads image → FastAPI Eval Service
-   ↳ OpenCV / SSIM comparison with reference image
-   ↳ Optional ML Model (ResNet50 / CLIP for semantic similarity)
-   ↳ Feedback JSON → Java backend
-   ↳ Stored as EvaluationRecord (skill_id, learner_id, score, comments)
+### HuggingFace Serverless Inference
+```bash
+export AI_PROVIDER=huggingface
+export HUGGINGFACE_API_KEY=your_hf_token
+export HUGGINGFACE_MODEL=meta-llama/Llama-3.2-3B-Instruct   # optional — any chat model
 ```
 
-**FastAPI sample (simplified):**
-```python
-@app.post("/evaluate-image")
-async def evaluate_image(file: UploadFile, reference: UploadFile):
-    img = cv2.imdecode(np.frombuffer(await file.read(), np.uint8), cv2.IMREAD_COLOR)
-    ref = cv2.imdecode(np.frombuffer(await reference.read(), np.uint8), cv2.IMREAD_COLOR)
-    score = compare_ssim(cv2.cvtColor(img, cv2.COLOR_BGR2GRAY),
-                         cv2.cvtColor(ref, cv2.COLOR_BGR2GRAY))
-    return {"score": score, "feedback": "Nice craftsmanship!" if score > 0.8 else "Needs refinement"}
+### OpenAI
+```bash
+export AI_PROVIDER=openai
+export OPENAI_API_KEY=your_key
 ```
 
-### 3️⃣ Reflection & Adaptive Feedback Flow (Java Agent Loop)
+If no API key is set the app runs in mock mode and returns placeholder responses.
 
-**Goal:** Continuously adapt lessons based on learner performance and emotional tone.
+## Running Locally
 
-**Flow:**
-```
-EvaluationRecord + EmotionContext → FeedbackAgent (LangChain4j)
-   ↳ Synthesizes encouragement and next-step suggestions.
-   ↳ Updates learner profile (difficulty level, motivation notes).
-```
-
-**LangChain4j Agent Sketch:**
-```java
-String feedbackPrompt = """
-Analyze this learner's performance and tone:
-- Score: %s
-- Comments: %s
-- Emotional tone: %s
-Give encouraging, adaptive feedback.
-""".formatted(score, comments, emotionTone);
-
-String feedback = chain.run(feedbackPrompt);
-```
-
-### 4️⃣ Knowledge Graph Integration (Future Extension)
-
-Store relationships between skills, tools, and regional origins in Neo4j or AWS Neptune for contextual recommendations:
-
-> “Since you learned Weaving, you might enjoy Natural Dyeing or Embroidery from Odisha.”
-
-## How to run locally
-
-### Start DB:
+**1. Start PostgreSQL**
 ```bash
 docker-compose up -d
 ```
 
-### Start eval service:
+**2. Start image evaluation service**
 ```bash
 cd eval-service
 pip install -r requirements.txt
 uvicorn app:app --reload --host 0.0.0.0 --port 8001
 ```
 
-### Start Java backend:
+**3. Start backend**
 ```bash
+cd backend
+export AI_PROVIDER=groq
+export GROQ_API_KEY=your_key
 mvn spring-boot:run
 ```
 
-### Example workflow:
-
-- Create skill:
+**4. Start frontend**
 ```bash
-POST http://localhost:8080/api/skills
-{ "name": "Calligraphy", "description": "Traditional pen calligraphy" }
+cd frontend
+npm install
+npm run dev
 ```
 
-- Generate lesson:
+Open `http://localhost:5173`.
+
+## API Reference
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/api/skills` | List all skills |
+| `POST` | `/api/skills` | Create a skill `{"name","description"}` |
+| `GET` | `/api/skills/{name}/lesson?level=beginner` | Generate AI lesson (beginner/intermediate/advanced) |
+| `POST` | `/api/skills/{name}/evaluate` | Evaluate submission `{"learnerId","imageUrl","referenceUrl"}` |
+| `GET` | `/api/skills/evaluation/{id}/adaptive-feedback` | Get adaptive feedback for an evaluation |
+
+## Frontend Pages
+
+| Route | Page |
+|---|---|
+| `/` | Skills list + create |
+| `/skills/:name/lesson` | Level picker + AI lesson |
+| `/skills/:name/evaluate` | Submit image URLs for evaluation |
+| `/evaluation/:id/feedback` | View adaptive feedback |
+
+## Running Tests
+
 ```bash
-GET http://localhost:8080/api/skills/Calligraphy/lesson
+cd backend && mvn test
 ```
 
-- Evaluate (image URLs must be publicly accessible):
-```bash
-POST http://localhost:8080/api/skills/Calligraphy/evaluate
-{ "learnerId":"user1", "imageUrl":"https://example.com/user.jpg", "referenceUrl":"https://example.com/ref.jpg" }
-```
-
-- Get adaptive feedback:
-```bash
-GET http://localhost:8080/api/skills/evaluation/1/adaptive-feedback
-```
-
-## Roadmap:
-
-- LangChain4j parts are skeleton/pseudocode and need implementation.
-- Build skill selection interface and lesson generator.
-- Implement user submission system.
-- Integrate basic evaluation logic (CV/NLP).
-- Generate feedback and suggest next lesson.
-- Bonus: Add gamification or progress tracking.
+12 unit tests cover: provider initialisation (Groq/HF/OpenAI), JSON parsing, lesson fallback chain, lesson persistence, and adaptive feedback rule-based fallback.
