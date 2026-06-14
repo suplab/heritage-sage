@@ -1,14 +1,14 @@
 # Heritage Sage — Lost Skills Revival Agent
 
-An AI-powered platform that teaches rare and traditional skills (calligraphy, weaving, pottery, etc.), evaluates learner submissions, and provides adaptive feedback.
+An AI-powered platform that teaches rare and traditional skills (calligraphy, weaving, pottery, etc.), evaluates learner work, and generates adaptive feedback. The agent selects lessons based on proficiency level, scores image submissions by comparing them to a reference, and uses the evaluation result to tailor its next suggestions.
 
 ## Monorepo Structure
 
 ```
 heritage-sage/
 ├── frontend/          React + Vite + TypeScript + Tailwind CSS
-├── backend/           Spring Boot 3 (Java 17)
-├── eval-service/      FastAPI image evaluation microservice (Python)
+├── backend/           Spring Boot 3 (Java 17) — REST API + AI + DB
+├── eval-service/      FastAPI microservice — image similarity scoring
 └── docker-compose.yml PostgreSQL 15
 ```
 
@@ -17,47 +17,79 @@ heritage-sage/
 | Layer | Technology |
 |---|---|
 | Frontend | React 18, Vite, TypeScript, Tailwind CSS v4 |
-| Backend | Spring Boot 3.2, Spring Data JPA |
-| AI | LangChain4j 1.7.1 — Groq / HuggingFace / OpenAI |
-| Database | PostgreSQL 15 (Docker) |
-| Evaluation | FastAPI + OpenCV + scikit-image (SSIM) |
+| Backend | Spring Boot 3.2, Spring Data JPA, LangChain4j 1.7.1 |
+| AI Providers | Groq (default) / HuggingFace / OpenAI — switchable via env var |
+| Database | PostgreSQL 15 (Docker) — tables: `skills`, `lessons`, `evaluations` |
+| Evaluation | FastAPI + OpenCV + scikit-image (SSIM image similarity) |
 
-## Architecture
+---
+
+## Core Agent Flows
+
+### 1. Lesson Generation
 
 ```
-React (port 5173)
-      ↓ REST API
-Spring Boot (port 8080)
-      ├── LangChain4j → Groq / HuggingFace / OpenAI
-      ├── EvaluationService → FastAPI (port 8001)
-      └── PostgreSQL (skills, lessons, evaluations)
+React UI → GET /api/skills/{name}/lesson?level=beginner
+         → LessonService
+              → LangChainLessonService (LangChain4j + Groq/HF/OpenAI)
+                   ↳ Prompt: "Create a {level} lesson for '{skill}'…"
+                   ↳ Falls back to direct REST call if LangChain unavailable
+              → Lesson saved to PostgreSQL
+         ← AI-generated lesson text returned to UI
 ```
+
+Level options: `beginner`, `intermediate`, `advanced`.
+
+---
+
+### 2. Image Evaluation
+
+```
+React UI → POST /api/skills/{name}/evaluate
+           { learnerId, imageUrl, referenceUrl }
+         → EvaluationService (Java)
+              → Downloads both images from public URLs
+              → Sends multipart request to eval-service (port 8001)
+         → FastAPI eval-service
+              → Decodes images with OpenCV
+              → Computes SSIM score (0.0 – 1.0) between learner image and reference
+              ← Returns { score, feedback }
+         → EvaluationRecord saved to PostgreSQL
+         ← Score + feedback returned to UI
+```
+
+---
+
+### 3. Adaptive Feedback
+
+```
+React UI → GET /api/skills/evaluation/{id}/adaptive-feedback
+         → FeedbackAgentService
+              → Loads EvaluationRecord from DB (score + evaluator feedback)
+              → Builds prompt:
+                   "Learner score: {score}. Feedback: {feedback}.
+                    Provide: encouragement, a practice exercise,
+                    and difficulty adjustment (stay/simplify/advance)."
+              → LangChain4j → Groq/HF/OpenAI
+                   ↳ Rule-based fallback if no API key configured
+         ← Adaptive feedback text returned to UI
+```
+
+---
 
 ## AI Provider Configuration
 
 Set `AI_PROVIDER` to switch inference backend. Defaults to **Groq**.
 
-### Groq (default — fastest)
-```bash
-export AI_PROVIDER=groq
-export GROQ_API_KEY=your_key
-export GROQ_MODEL=llama-3.3-70b-versatile   # optional
-```
+| Provider | Env vars required |
+|---|---|
+| `groq` (default) | `GROQ_API_KEY`, optionally `GROQ_MODEL` (default: `llama-3.3-70b-versatile`) |
+| `huggingface` | `HUGGINGFACE_API_KEY`, optionally `HUGGINGFACE_MODEL` (default: `meta-llama/Llama-3.2-3B-Instruct`) |
+| `openai` | `OPENAI_API_KEY` |
 
-### HuggingFace Serverless Inference
-```bash
-export AI_PROVIDER=huggingface
-export HUGGINGFACE_API_KEY=your_hf_token
-export HUGGINGFACE_MODEL=meta-llama/Llama-3.2-3B-Instruct   # optional — any chat model
-```
+Both Groq and HuggingFace expose OpenAI-compatible REST APIs, so no extra dependencies are needed to switch between them. If no API key is configured, the app runs in mock mode and returns placeholder responses.
 
-### OpenAI
-```bash
-export AI_PROVIDER=openai
-export OPENAI_API_KEY=your_key
-```
-
-If no API key is set the app runs in mock mode and returns placeholder responses.
+---
 
 ## Running Locally
 
@@ -86,9 +118,10 @@ mvn spring-boot:run
 cd frontend
 npm install
 npm run dev
+# → http://localhost:5173
 ```
 
-Open `http://localhost:5173`.
+---
 
 ## API Reference
 
@@ -96,18 +129,11 @@ Open `http://localhost:5173`.
 |---|---|---|
 | `GET` | `/api/skills` | List all skills |
 | `POST` | `/api/skills` | Create a skill `{"name","description"}` |
-| `GET` | `/api/skills/{name}/lesson?level=beginner` | Generate AI lesson (beginner/intermediate/advanced) |
-| `POST` | `/api/skills/{name}/evaluate` | Evaluate submission `{"learnerId","imageUrl","referenceUrl"}` |
-| `GET` | `/api/skills/evaluation/{id}/adaptive-feedback` | Get adaptive feedback for an evaluation |
+| `GET` | `/api/skills/{name}/lesson?level=beginner` | Generate AI lesson |
+| `POST` | `/api/skills/{name}/evaluate` | Evaluate `{"learnerId","imageUrl","referenceUrl"}` |
+| `GET` | `/api/skills/evaluation/{id}/adaptive-feedback` | Adaptive feedback for an evaluation |
 
-## Frontend Pages
-
-| Route | Page |
-|---|---|
-| `/` | Skills list + create |
-| `/skills/:name/lesson` | Level picker + AI lesson |
-| `/skills/:name/evaluate` | Submit image URLs for evaluation |
-| `/evaluation/:id/feedback` | View adaptive feedback |
+---
 
 ## Running Tests
 
@@ -115,4 +141,4 @@ Open `http://localhost:5173`.
 cd backend && mvn test
 ```
 
-12 unit tests cover: provider initialisation (Groq/HF/OpenAI), JSON parsing, lesson fallback chain, lesson persistence, and adaptive feedback rule-based fallback.
+12 unit tests covering provider initialisation, JSON parsing, lesson fallback chain, lesson persistence, and adaptive feedback fallback.
